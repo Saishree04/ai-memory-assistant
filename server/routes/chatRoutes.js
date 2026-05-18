@@ -102,4 +102,61 @@ Generate exactly 5 quiz questions in this exact JSON format only, no extra text,
   }
 });
 
+
+// GET /api/ask?question=yourquestion
+router.get("/ask", async (req, res) => {
+
+  try {
+
+    const question = req.query.question;
+
+    // Validation
+    if (!question) {
+      return res.status(400).json({
+        error: "Question is required"
+      });
+    }
+
+    // AI response
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        {
+          role: "system",
+          content: "You are an AI Student Memory Assistant. Help students understand concepts clearly."
+        },
+        {
+          role: "user",
+          content: question
+        }
+      ]
+    });
+
+    const aiResponse = completion.choices[0].message.content;
+
+    // Save to MongoDB
+    const newChat = new Chat({
+      userId: "browserUser",
+      message: question,
+      response: aiResponse
+    });
+
+    await newChat.save();
+
+    // Send response
+    res.json({
+      success: true,
+      question,
+      response: aiResponse
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+
 module.exports = router;
