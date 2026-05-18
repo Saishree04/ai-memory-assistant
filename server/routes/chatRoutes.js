@@ -10,9 +10,8 @@ router.post("/chat", async (req, res) => {
   try {
     const { userId, message } = req.body;
 
-    // Get AI response from Groq
     const completion = await groq.chat.completions.create({
-model: "llama-3.3-70b-versatile",
+      model: "llama-3.3-70b-versatile",
       messages: [
         {
           role: "system",
@@ -27,11 +26,11 @@ model: "llama-3.3-70b-versatile",
 
     const response = completion.choices[0].message.content;
 
-    // Save to MongoDB
     const newChat = new Chat({ userId, message, response });
     await newChat.save();
 
-res.status(201).json({ success: true, userMessage: message, aiResponse: response });
+    res.status(201).json({ success: true, userMessage: message, aiResponse: response });
+
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -47,14 +46,60 @@ router.get("/history/:userId", async (req, res) => {
   }
 });
 
-// GET /api/quiz
-router.get("/quiz", async (req, res) => {
-  const quiz = [
-    { question: "What is AI?", answer: "Artificial Intelligence" },
-    { question: "What is DBMS?", answer: "Database Management System" },
-    { question: "What is RAM?", answer: "Random Access Memory" }
-  ];
-  res.json(quiz);
+// GET /api/quiz/:userId
+router.get("/quiz/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // Get last 5 chats of this student
+    const recentChats = await Chat.find({ userId })
+      .sort({ createdAt: -1 })
+      .limit(5);
+
+    // If no chats found return default questions
+    if (recentChats.length === 0) {
+      return res.json([
+        { question: "What is AI?", answer: "Artificial Intelligence" },
+        { question: "What is Machine Learning?", answer: "AI that learns from data" },
+        { question: "What is a Database?", answer: "Organized collection of data" },
+        { question: "What is an API?", answer: "Application Programming Interface" },
+        { question: "What is Cloud Computing?", answer: "Storing data over the internet" }
+      ]);
+    }
+
+    // Generate quiz from their actual study topics using Groq AI
+    const topics = recentChats.map(c => c.message).join(", ");
+
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        {
+          role: "user",
+          content: `Based on these topics a student studied: ${topics}
+          
+Generate exactly 5 quiz questions in this exact JSON format only, no extra text, no markdown:
+[
+  {"question": "...", "answer": "..."},
+  {"question": "...", "answer": "..."},
+  {"question": "...", "answer": "..."},
+  {"question": "...", "answer": "..."},
+  {"question": "...", "answer": "..."}
+]`
+        }
+      ]
+    });
+
+    const text = completion.choices[0].message.content;
+    
+    // Clean the response and parse JSON
+    const clean = text.replace(/```json|```/g, "").trim();
+    const questions = JSON.parse(clean);
+    
+    res.json(questions);
+
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 module.exports = router;
